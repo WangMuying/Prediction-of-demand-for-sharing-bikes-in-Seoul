@@ -1,0 +1,25 @@
+---
+title: "splitting data"
+author: "Muying Wang"
+date: "2021/12/10"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Splitting data
+```{r}
+d = read.csv("../data/new_SeoulBikeData_2.csv")
+
+library(caret)
+set.seed(42)
+d.idx = createDataPartition(d$count, p = 0.7, list = FALSE)
+d.trn = d[d.idx,]
+d.tst = d[-d.idx,]
+n.trn = nrow(d.trn)
+n.tst = nrow(d.tst)
+write.table(d.trn,"training.csv",row.names=FALSE,col.names=TRUE,sep=",")
+write.table(d.tst,"test.csv",row.names=FALSE,col.names=TRUE,sep=",")
+```

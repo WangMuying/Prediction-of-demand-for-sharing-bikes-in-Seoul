@@ -1,0 +1,230 @@
+---
+title: "data_visualization_erg2050"
+author: "Pan Jialin 119020040"
+date: "12/4/2021"
+abstract: "This is the abstract. It should probably be at most 300 words. The abstract should briefly explain what you are doing, why you are doing it, and what you have found. Reading only the abstract, the reader should have a good idea about what to expect from the rest of the document."
+output:
+  bookdown::pdf_document2:
+    toc: FALSE
+    number_sections: FALSE
+link-citations: TRUE
+linkcolor: Cerulean
+urlcolor: Cerulean
+citecolor: Cerulean
+fontsize: 10pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  fig.width = 7,
+  fig.height = 4,
+  fig.align = "center")
+```
+
+```{r, warning=F}
+dat <- read.csv("../data/new_SeoulBikeData_2.csv",
+                header = T, check.names = F)
+attach(dat)
+
+# create a factor for four season
+# encoding: winter 0, autumn 1, spring 2, summer 3
+
+season_fac <- factor(dat$season, levels = c(0,1,2,3), 
+                     labels = c("winter","autumn","spring","summer"))
+
+# create a factor for day
+# encoding: sunday 0, monday 1, tue 2, wed 3, thur 4, fri 5, sat 6
+
+day_fac <- factor(dat$day, level = c(0,1,2,3,4,5,6),
+                  labels = c("sunday","monday","tuesday","wednesday",
+                             "thursday","friday","saturday"))
+
+# create a weekend factor
+weekend_fac <- factor(weekend,level = c(0,1),
+                      labels = c("weekday","weekend"))
+
+holiday_fac <- factor(holiday, level = c(0,1), 
+                      labels = c("nonholiday","holiday"))
+
+```
+
+
+  
+
+
+## Data Visualization  
+The following is the visualization of our response "count"
+```{r}
+par(mfrow=c(1,3))
+boxplot(count, main = "count")
+hist(count)
+hist(log(count))
+```
+  
+  From the distribution of the dependence variable count, we can see that the medium number of bike rented at each hour is approximately 500, with the middle 50% of the data values lying in between 250 and 1000.  
+  The spread for the daily counts larger than the 75% quartile is wide, with an upper limit set at around 2400. It appears that there is a considerable amount of outliers lying above the upper limits. However, we will not deal with these outliers, since the maximum value is about 3500, which is a reasonable amount for bike rented hourly in the busy city Seoul.  
+  
+  
+  
+These plots show the relationship between the response and the categorical variables.  
+```{r}
+# box plot
+par(mfrow = c(2,2), cex = 0.65)
+boxplot(count~season_fac, xlab = "season")
+boxplot(count~day_fac, xlab = "day")
+boxplot(count~weekend_fac, xlab = "weekend")
+boxplot(count~holiday_fac, xlab = "holiday")
+
+```
+  
+  From the boxplot created for categorical variables season, we get the following pattern for the demand of rental bike in Seoul:  
+  1. The demand is lowest in winter, highest in summer. The demand for sharing bikes is similar in the two season spring and autumn.  
+  2. The demand for sharing bikes is slightly higher in weekdays than in weekend. Moreover, the hourly count of bike rented in weekdays have significantly more outliers than in weekends.  
+  3. The demand for sharing bikes is lower in holiday than in non holiday.  
+  
+  The difference of demand for sharing bikes in season could be a result of different weather conditions, such as temperature, humidity, snow, rain, wind etc. These factors may have strong correlation with the season factor, with which we shall pay more attention to in our later analysis.  
+  That the demand for sharing bikes in weekdays is higher than in weekend implies that sharing bikes have become a daily commuter tool for citizen in Seoul. It makes sense that citizens would choose sharing bikes for daily commuting, since sharing bike is cheap, convenient and eco-friendly. However, as the holiday boxplot implies, people might prefer other way of travelling during the holiday. 
+  
+  
+
+
+  
+The following scatter plots show the rough relationship between the rental bike counts and the 
+non-binary-categorical variables.  
+```{r}
+# scatter plot
+library(ggplot2)
+library(patchwork)
+par(mfrow = c(5,3))
+dat_1 <- dat[-c(12:20)]
+
+p1 <- ggplot(dat_1,aes(x = hour,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p2 <- ggplot(dat_1,aes(x = temp,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p3 <- ggplot(dat_1,aes(x = hum,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p4 <- ggplot(dat_1,aes(x = wind,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p5 <- ggplot(dat_1,aes(x = visb,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p6 <- ggplot(dat_1,aes(x = dew,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p7 <- ggplot(dat_1,aes(x = solar,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p8 <- ggplot(dat_1,aes(x = rain,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p9 <- ggplot(dat_1,aes(x = snow,y = count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+
+```
+  The first plot shows how the demand changes within 24 hours in a day. The peaks of demand is at 7-9am and 6-8 pm, which is when the working hour starts and ends for most citizens. Moreover, the demand for sharing bikes is evidently higher in the afternoon than in the morning. This could be due to solar radiation is weaker in the afternoon.  
+  The relationship between the response and these predictors are highly nonlinear, thus a linear model might not produce satisfying performance. 
+We can see that the scale range of the response is wide, resulting in a wide range of response value for each specific value predictors and a weak linear relation pattern. From the density plot of the response, we also noted that it is significantly skewed leftward. We could perform log transformation on the response to reduce skewness and the value scale of the response, in order to achive better linear relationship with the predictors.  
+
+```{r}
+dat$log_count <- log(count)
+
+library(ggplot2)
+library(patchwork)
+par(mfrow = c(5,3))
+dat_1 <- dat[-c(12:20)]
+
+p1 <- ggplot(dat_1,aes(x = hour,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p2 <- ggplot(dat_1,aes(x = temp,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p3 <- ggplot(dat_1,aes(x = hum,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p4 <- ggplot(dat_1,aes(x = wind,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p5 <- ggplot(dat_1,aes(x = visb,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p6 <- ggplot(dat_1,aes(x = dew,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p7 <- ggplot(dat_1,aes(x = solar,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p8 <- ggplot(dat_1,aes(x = rain,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p9 <- ggplot(dat_1,aes(x = snow,y = log_count)) +
+        geom_point(size=2, shape=20, alpha = 0.3) +
+        geom_smooth(formula = y~x, method=lm, color = "red3")
+
+p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+```
+  After the log transformation of the response *count*, we can see that the relationship is less scatter and less skewed, with shapes of scatter plots between the response and predictors more close to a linear relationship.
+
+
+
+The following graph shows the density plot of the continuous predictors.  
+```{r}
+library(ggplot2)
+library(patchwork)
+pd1 <- ggplot(dat, aes(x = temp)) + geom_density()
+pd2 <- ggplot(dat, aes(x = hum)) + geom_density()
+pd3 <- ggplot(dat, aes(x = wind)) + geom_density()
+pd4 <- ggplot(dat, aes(x = visb)) + geom_density()
+pd5 <- ggplot(dat, aes(x = dew)) + geom_density()
+pd6 <- ggplot(dat, aes(x = solar)) + geom_density()
+pd7 <- ggplot(dat, aes(x = rain)) + geom_density()
+pd8 <- ggplot(dat, aes(x = snow)) + geom_density()
+
+pd1 + pd2 + pd3 + pd4 + pd5 + pd6 + pd7 + pd8
+```
+  The distribution of wind, solar, visb, rain, snow are very skewed. Log transfromation of these predictors might lead to higher prediction accuracy.  
+
+```{r}
+library(GGally)
+ind <- c(1:11,21:23)
+dat_corr <- dat[ind]
+GGally::ggcorr(dat_corr, method=c("everything","pearson"), label=T, 
+       label_size = 2, label_round = 2,
+       size = 3, low = "steelblue", mid = "snow1", high = "red3", 
+       hjust = 0.75, layout.exp = 1 )
+```
+  
+  From the correlation heat map we can see that demand for sharing bikes have relatively strong postive correlation with the hour in a day, temperature, dew and season, all with correlations larger than 0.3. The demand for sharing bikes appears to have a negative relation with humidity, rain, snow, and whether the day is a holiday or weekend, even though the correlations are weak, with absolute values smaller than 0.25.   Moreover, we can see that temperature has a strong correlation with dew point temperature and season, the correlation between season and dew point temperature is also strong, so we might want to add interaction term or drop some variables to deal with the dependency between predictors.   
+  The variable humidity is negatively correlated with visibility, wind, solar radiation and the absolute value of correlations are all moderately high. It is also positively correlated with dew point temperature. Thus, we need to be careful when examining their partial effect on the response.
+  In all, the heat map provides us with an idea of how to improve our model later by adding interaction term and the possible reason for insignificant performance of certain variables.  
+  
+  
+  
+
+
+

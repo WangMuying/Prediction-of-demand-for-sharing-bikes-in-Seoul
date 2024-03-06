@@ -1,0 +1,729 @@
+---
+title: "log transformation & WLS"
+output: pdf_document
+---
+
+### 2021.12.27 Dai Hui
+
+Get the data
+```{r}
+d.trn = read.csv("../data/training.csv")
+```
+
+# Log Transformation
+## Subset Selection Methods - Best Subset Selection
+### Fit the model   
+We fit up to a 19-variable model.    
+```{r}
+library(leaps)
+d.trn$lcount = log(d.trn$count)
+n = ncol(d.trn)-1-4
+regfit.full = regsubsets(lcount~.-weekend-season-day-count, data=d.trn, nvmax=n)
+reg.summary = summary(regfit.full)
+```
+
+### Choosing among models using Cp, BIC and adjusted R2
+Plot Cp, BIC and adjusted R2 for all the models.     
+Identify the best model (smallest Cp and BIC, largerst adjusted R2) under each criteria using a red dot.    
+```{r}
+par(mfrow=c(2,2))
+plot(reg.summary$cp, xlab="Number of variables", ylab="Cp", type="l")
+min_cp = which.min(reg.summary$cp)
+points(min_cp,reg.summary$cp[min_cp], col="red",cex=2,pch=20)
+text(min_cp,reg.summary$cp[min_cp],labels=min_cp, cex=0.5)
+
+plot(reg.summary$bic, xlab="Number of variables", ylab="BIC", type="l")
+min_bic = which.min(reg.summary$bic)
+points(min_bic,reg.summary$bic[min_bic], col="red",cex=2,pch=20)
+text(min_bic,reg.summary$bic[min_bic],labels=min_bic, cex=0.5)
+
+plot(reg.summary$adjr2, xlab="Number of variables", ylab="Adjusted R2", type="l")
+max_adjr2 = which.max(reg.summary$adjr2)
+points(max_adjr2,reg.summary$adjr2[max_adjr2], col="red",cex=2,pch=20)
+text(max_adjr2,reg.summary$adjr2[max_adjr2],labels=max_adjr2, cex=0.5)
+```
+
+Display the selected variables for the best model with a given number of predictors, ranked according to the Cp,BIC, adjusted R2.     
+```{r}
+plot(regfit.full,scale="Cp")
+plot(regfit.full,scale="bic")
+plot(regfit.full,scale="adjr2")
+```
+
+### Choosing among models using cross-validation
+```{r}
+set.seed(42)
+k = 10
+n = ncol(d.trn)-1-4
+folds=sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=matrix(NA,k,n, dimnames=list(NULL, paste(1:n)))
+
+predict.regsubsets =function(object ,newdata ,id ,...){
+  form=as.formula(object$call[[2]]) 
+  mat=model.matrix(form,newdata)
+  coefi=coef(object ,id=id)
+  xvars=names(coefi)
+  mat[,xvars]%*%coefi
+}
+
+for (j in 1:k){
+  best.fit=regsubsets(lcount~.-weekend-season-day-count, data=d.trn[folds!=j,], nvmax=n)
+  for (i in 1:n){
+    pred = predict.regsubsets(best.fit, d.trn[folds == j,], id=i)
+    true = d.trn$lcount[folds == j]
+    cv.errors[j,i]=mean((exp(true)-exp(pred))^2)
+  }
+}
+mean.cv.errors=apply(cv.errors,2,mean)
+mean.cv.errors
+
+plot(mean.cv.errors ,type='b',ylim=c(min(mean.cv.errors)-10000,max(mean.cv.errors)))
+min_cv = which.min(mean.cv.errors)
+points(min_cv,mean.cv.errors[min_cv], col="red",cex=2,pch=20)
+text(min_cv,mean.cv.errors[min_cv],labels=min_cv, cex=0.5)
+
+# one standard error rule
+se.sub = apply(cv.errors,2,sd)/sqrt(k)
+abline(h=mean.cv.errors[min_cv]+se.sub[min_cv],col="red",lty=2)
+abline(h=mean.cv.errors[min_cv]-se.sub[min_cv],col="red",lty=2)
+idx = min(which((mean.cv.errors[min_cv]-se.sub[min_cv]<=mean.cv.errors)&((mean.cv.errors<=mean.cv.errors[min_cv]+se.sub[min_cv]))))
+points(idx,mean.cv.errors[idx], col="blue",cex=2,pch=20)
+text(idx,mean.cv.errors[idx],labels=idx,cex=0.5)
+```
+We see that cross-validation and one standard error rule select a 7-variable model.   
+
+Show the coefficients
+```{r}
+coef(regfit.full,idx)
+```
+
+
+```{r}
+# cv test error
+mean.cv.errors[idx]
+```
+
+Now we check the LINE assumptions again.
+```{r}
+lm.fit.7 = lm(lcount~hour+hum+dew+rain+autumn+spring+summer, data=d.trn)
+fitted = predict(lm.fit.7, newx=x)
+y = d.trn$lcount
+res = fitted-y
+plot(fitted,res,main="Residual vs Fitted Value (log transformation)")
+abline(0,0,col="red")
+
+sres = res/sd(res)
+qqnorm(sres)
+abline(0,1,col="red")
+```
+
+
+## Shrinkage Methods - Ridge & Lasso
+### Ridge
+```{r}
+library(glmnet)
+x = model.matrix(lcount~.-weekend-season-day-count, d.trn)[,-1] # delete the intercept
+y = d.trn$lcount
+grid =10^seq(10,-2, length =100) # 1e-2 = 0.01 
+ridge.mod =glmnet(x,y,alpha=0, lambda = grid)
+```
+Note that by default, the glmnet() function standardizes the variables so that they are on the same scale.
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out =cv.glmnet (x, y, alpha =0)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+The value of lambda that results in the smallest cross-validation error is 0.06583362 
+
+Refit our ridge regression model using the value of lambda chosen by cross-validation, and examine the coefficient estimates.
+```{r}
+out = glmnet(x,y,alpha = 0)
+predict(out, type = "coefficient", s = bestlam)[,]
+```
+
+The cv test error under lambda = 0.06583362    
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=0, lambda = grid)
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((exp(true)-exp(pred))^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+### Lasso
+```{r}
+lasso.mod = glmnet(x, y, alpha = 1, lambda = grid)
+plot(lasso.mod)
+```
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out = cv.glmnet(x,y,alpha =1)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+
+Refit our lasso regression model using the value of lambda chosen by cross-validation, and examine the coefficient estimates.     
+```{r}
+out = glmnet(x,y,alpha = 1, lambda = grid)
+lasso.coef = predict(out, type = "coefficients", s = bestlam)[,]
+lasso.coef[lasso.coef!=0]
+```
+Lasso shrinks the coefficient estimates of "wind", "solar", "temp:summer" and "dew:summer" to exactly zero.
+
+The cv test error under best lambda.  
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=1, lambda = grid)
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((exp(true)-exp(pred))^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+#WLS
+WLS
+```{r}
+lm.fit = lm(count~.-weekend-season-day-lcount, data = d.trn)
+w1 = 1/fitted(lm.fit)^2
+w2 = 1/resid(lm.fit)^2
+w3 = 1/abs(resid(lm.fit))
+```
+
+## WLS - w2
+## Subset Selection Methods - Best Subset Selection
+### Fit the model   
+We fit up to a 19-variable model.    
+```{r}
+library(leaps)
+
+d.trn$lcount = log(d.trn$count)
+n = ncol(d.trn)-1-4
+regfit.full = regsubsets(count~.-weekend-season-day-lcount, data=d.trn, nvmax=n,weigths=w2)
+reg.summary = summary(regfit.full)
+```
+
+### Choosing among models using Cp, BIC and adjusted R2
+Plot Cp, BIC and adjusted R2 for all the models.     
+Identify the best model (smallest Cp and BIC, largerst adjusted R2) under each criteria using a red dot.    
+```{r}
+par(mfrow=c(2,2))
+plot(reg.summary$cp, xlab="Number of variables", ylab="Cp", type="l")
+min_cp = which.min(reg.summary$cp)
+points(min_cp,reg.summary$cp[min_cp], col="red",cex=2,pch=20)
+text(min_cp,reg.summary$cp[min_cp],labels=min_cp, cex=0.5)
+
+plot(reg.summary$bic, xlab="Number of variables", ylab="BIC", type="l")
+min_bic = which.min(reg.summary$bic)
+points(min_bic,reg.summary$bic[min_bic], col="red",cex=2,pch=20)
+text(min_bic,reg.summary$bic[min_bic],labels=min_bic, cex=0.5)
+
+plot(reg.summary$adjr2, xlab="Number of variables", ylab="Adjusted R2", type="l")
+max_adjr2 = which.max(reg.summary$adjr2)
+points(max_adjr2,reg.summary$adjr2[max_adjr2], col="red",cex=2,pch=20)
+text(max_adjr2,reg.summary$adjr2[max_adjr2],labels=max_adjr2, cex=0.5)
+```
+
+Display the selected variables for the best model with a given number of predictors, ranked according to the Cp,BIC, adjusted R2.     
+```{r}
+plot(regfit.full,scale="Cp")
+plot(regfit.full,scale="bic")
+plot(regfit.full,scale="adjr2")
+```
+
+### Choosing among models using cross-validation
+```{r}
+set.seed(42)
+k = 10
+n = ncol(d.trn)-1-4
+folds=sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=matrix(NA,k,n, dimnames=list(NULL, paste(1:n)))
+
+predict.regsubsets =function(object ,newdata ,id ,...){
+  form=as.formula(object$call[[2]]) 
+  mat=model.matrix(form,newdata)
+  coefi=coef(object ,id=id)
+  xvars=names(coefi)
+  mat[,xvars]%*%coefi
+}
+
+for (j in 1:k){
+  best.fit=regsubsets(count~.-weekend-season-day-lcount, data=d.trn[folds!=j,], nvmax=n, weights=w2[folds!=j])
+  for (i in 1:n){
+    pred = predict.regsubsets(best.fit, d.trn[folds == j,], id=i)
+    true = d.trn$count[folds == j]
+    cv.errors[j,i]=mean((true-pred)^2)
+  }
+}
+mean.cv.errors=apply(cv.errors,2,mean)
+mean.cv.errors
+
+plot(mean.cv.errors ,type='b')
+min_cv = which.min(mean.cv.errors)
+points(min_cv,mean.cv.errors[min_cv], col="red",cex=2,pch=20)
+text(min_cv,mean.cv.errors[min_cv],labels=min_cv, cex=0.5)
+```
+
+one standard error rule
+```{r}
+se.sub = apply(cv.errors,2,sd)/sqrt(k)
+idx = min(which((mean.cv.errors[min_cv]-se.sub[min_cv]<=mean.cv.errors)&((mean.cv.errors<=mean.cv.errors[min_cv]+se.sub[min_cv]))))
+idx
+coef(regfit.full,idx)
+```
+
+
+```{r}
+# cv test error
+mean.cv.errors[12]
+```
+
+## Shrinkage Methods - Ridge & Lasso
+### Ridge
+```{r}
+library(glmnet)
+x = model.matrix(count~.-weekend-season-day-lcount, d.trn)[,-1] # delete the intercept
+y = d.trn$count
+grid =10^seq(10,-2, length =100) # 1e-2 = 0.01 
+ridge.mod =glmnet(x,y,alpha=0, lambda = grid, weights=w2)
+```
+Note that by default, the glmnet() function standardizes the variables so that they are on the same scale.
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out =cv.glmnet (x, y, alpha =0, weights=w2)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+
+Refit our ridge regression model using the value of lambda chosen by cross-validation, and examine the coefficient estimates.
+```{r}
+out = glmnet(x,y,alpha = 0, weights=w2)
+predict(out, type = "coefficient", s = bestlam)[,]
+```
+
+The cv test error under best lambda. 
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=0, lambda = grid, weights=w2[folds!=j])
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((true-pred)^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+### Lasso
+```{r}
+lasso.mod = glmnet(x, y, alpha = 1, lambda = grid, weights=w2)
+plot(lasso.mod)
+```
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out = cv.glmnet(x,y,alpha =1, weights=w2)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+
+
+Refit our lasso regression model using the value of lambda chosen by cross-validation, and examine the coefficient estimates.     
+```{r}
+out = glmnet(x,y,alpha = 1, lambda = grid, weights=w2)
+lasso.coef = predict(out, type = "coefficients", s = bestlam)[,]
+lasso.coef[lasso.coef!=0]
+lasso.coef[lasso.coef==0]
+```
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=1, lambda = grid, weights=w2[folds!=j])
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((true-pred)^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+##WLS - w1
+## Subset Selection Methods - Best Subset Selection
+### Fit the model   
+We fit up to a 19-variable model.    
+```{r}
+library(leaps)
+
+d.trn$lcount = log(d.trn$count)
+n = ncol(d.trn)-1-4
+regfit.full = regsubsets(count~.-weekend-season-day-lcount, data=d.trn, nvmax=n,weigths=w1)
+reg.summary = summary(regfit.full)
+```
+
+### Choosing among models using Cp, BIC and adjusted R2
+Plot Cp, BIC and adjusted R2 for all the models.     
+Identify the best model (smallest Cp and BIC, largerst adjusted R2) under each criteria using a red dot.    
+```{r}
+par(mfrow=c(2,2))
+plot(reg.summary$cp, xlab="Number of variables", ylab="Cp", type="l")
+min_cp = which.min(reg.summary$cp)
+points(min_cp,reg.summary$cp[min_cp], col="red",cex=2,pch=20)
+text(min_cp,reg.summary$cp[min_cp],labels=min_cp, cex=0.5)
+
+plot(reg.summary$bic, xlab="Number of variables", ylab="BIC", type="l")
+min_bic = which.min(reg.summary$bic)
+points(min_bic,reg.summary$bic[min_bic], col="red",cex=2,pch=20)
+text(min_bic,reg.summary$bic[min_bic],labels=min_bic, cex=0.5)
+
+plot(reg.summary$adjr2, xlab="Number of variables", ylab="Adjusted R2", type="l")
+max_adjr2 = which.max(reg.summary$adjr2)
+points(max_adjr2,reg.summary$adjr2[max_adjr2], col="red",cex=2,pch=20)
+text(max_adjr2,reg.summary$adjr2[max_adjr2],labels=max_adjr2, cex=0.5)
+```
+
+Display the selected variables for the best model with a given number of predictors, ranked according to the Cp,BIC, adjusted R2.     
+```{r}
+plot(regfit.full,scale="Cp")
+plot(regfit.full,scale="bic")
+plot(regfit.full,scale="adjr2")
+```
+
+### Choosing among models using cross-validation
+```{r}
+set.seed(42)
+k = 10
+n = ncol(d.trn)-1-4
+folds=sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=matrix(NA,k,n, dimnames=list(NULL, paste(1:n)))
+
+predict.regsubsets =function(object ,newdata ,id ,...){
+  form=as.formula(object$call[[2]]) 
+  mat=model.matrix(form,newdata)
+  coefi=coef(object ,id=id)
+  xvars=names(coefi)
+  mat[,xvars]%*%coefi
+}
+
+for (j in 1:k){
+  best.fit=regsubsets(count~.-weekend-season-day-lcount, data=d.trn[folds!=j,], nvmax=n, weights=w1[folds!=j])
+  for (i in 1:n){
+    pred = predict.regsubsets(best.fit, d.trn[folds == j,], id=i)
+    true = d.trn$count[folds == j]
+    cv.errors[j,i]=mean((true-pred)^2)
+  }
+}
+mean.cv.errors=apply(cv.errors,2,mean)
+mean.cv.errors
+
+plot(mean.cv.errors ,type='b')
+min_cv = which.min(mean.cv.errors)
+points(min_cv,mean.cv.errors[min_cv], col="red",cex=2,pch=20)
+text(min_cv,mean.cv.errors[min_cv],labels=min_cv, cex=0.5)
+```
+
+one standard error rule
+```{r}
+se.sub = apply(cv.errors,2,sd)/sqrt(k)
+idx = min(which((mean.cv.errors[min_cv]-se.sub[min_cv]<=mean.cv.errors)&((mean.cv.errors<=mean.cv.errors[min_cv]+se.sub[min_cv]))))
+idx
+coef(regfit.full,17)
+```
+It chooses a 17-variable model.
+
+```{r}
+# cv test error
+mean.cv.errors[17]
+```
+
+## Shrinkage Methods - Ridge & Lasso
+### Ridge
+```{r}
+library(glmnet)
+x = model.matrix(count~.-weekend-season-day-lcount, d.trn)[,-1] # delete the intercept
+y = d.trn$count
+grid =10^seq(10,-2, length =100) # 1e-2 = 0.01 
+ridge.mod =glmnet(x,y,alpha=0, lambda = grid, weights=w1)
+```
+Note that by default, the glmnet() function standardizes the variables so that they are on the same scale.
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out =cv.glmnet (x, y, alpha =0, weights=w1)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+
+Refit our ridge regression model using the value of lambda chosen by cross-validation, and examine the coefficient estimates.
+```{r}
+out = glmnet(x,y,alpha = 0, weights=w1)
+predict(out, type = "coefficient", s = bestlam)[,]
+```
+
+The cv test error under lambda = 1.184816     
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=0, lambda = grid, weights=w1[folds!=j])
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((true-pred)^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+### Lasso
+```{r}
+lasso.mod = glmnet(x, y, alpha = 1, lambda = grid, weights=w1)
+plot(lasso.mod)
+```
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out = cv.glmnet(x,y,alpha =1, weights=w1)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+
+Refit our lasso regression model using the value of lambda chosen by cross-validation, and examine the coefficient estimates.     
+```{r}
+out = glmnet(x,y,alpha = 1, lambda = grid, weights=w1)
+lasso.coef = predict(out, type = "coefficients", s = bestlam)[,]
+lasso.coef[lasso.coef!=0]
+lasso.coef[lasso.coef==0]
+```
+
+The cv test error under best lambda.
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=1, lambda = grid, weights=w1[folds!=j])
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((true-pred)^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+
+##WLS - w3
+## Subset Selection Methods - Best Subset Selection
+### Fit the model   
+We fit up to a 19-variable model.    
+```{r}
+library(leaps)
+
+d.trn$lcount = log(d.trn$count)
+n = ncol(d.trn)-1-4
+regfit.full = regsubsets(count~.-weekend-season-day-lcount, data=d.trn, nvmax=n,weigths=w3)
+reg.summary = summary(regfit.full)
+```
+
+### Choosing among models using Cp, BIC and adjusted R2
+Plot Cp, BIC and adjusted R2 for all the models.     
+Identify the best model (smallest Cp and BIC, largerst adjusted R2) under each criteria using a red dot.    
+```{r}
+par(mfrow=c(2,2))
+plot(reg.summary$cp, xlab="Number of variables", ylab="Cp", type="l")
+min_cp = which.min(reg.summary$cp)
+points(min_cp,reg.summary$cp[min_cp], col="red",cex=2,pch=20)
+text(min_cp,reg.summary$cp[min_cp],labels=min_cp, cex=0.5)
+
+plot(reg.summary$bic, xlab="Number of variables", ylab="BIC", type="l")
+min_bic = which.min(reg.summary$bic)
+points(min_bic,reg.summary$bic[min_bic], col="red",cex=2,pch=20)
+text(min_bic,reg.summary$bic[min_bic],labels=min_bic, cex=0.5)
+
+plot(reg.summary$adjr2, xlab="Number of variables", ylab="Adjusted R2", type="l")
+max_adjr2 = which.max(reg.summary$adjr2)
+points(max_adjr2,reg.summary$adjr2[max_adjr2], col="red",cex=2,pch=20)
+text(max_adjr2,reg.summary$adjr2[max_adjr2],labels=max_adjr2, cex=0.5)
+```
+
+Display the selected variables for the best model with a given number of predictors, ranked according to the Cp,BIC, adjusted R2.     
+```{r}
+plot(regfit.full,scale="Cp")
+plot(regfit.full,scale="bic")
+plot(regfit.full,scale="adjr2")
+```
+
+### Choosing among models using cross-validation
+```{r}
+set.seed(42)
+k = 10
+n = ncol(d.trn)-1-4
+folds=sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=matrix(NA,k,n, dimnames=list(NULL, paste(1:n)))
+
+predict.regsubsets =function(object ,newdata ,id ,...){
+  form=as.formula(object$call[[2]]) 
+  mat=model.matrix(form,newdata)
+  coefi=coef(object ,id=id)
+  xvars=names(coefi)
+  mat[,xvars]%*%coefi
+}
+
+for (j in 1:k){
+  best.fit=regsubsets(count~.-weekend-season-day-lcount, data=d.trn[folds!=j,], nvmax=n, weights=w3[folds!=j])
+  for (i in 1:n){
+    pred = predict.regsubsets(best.fit, d.trn[folds == j,], id=i)
+    true = d.trn$count[folds == j]
+    cv.errors[j,i]=mean((true-pred)^2)
+  }
+}
+mean.cv.errors=apply(cv.errors,2,mean)
+mean.cv.errors
+
+plot(mean.cv.errors ,type='b')
+min_cv = which.min(mean.cv.errors)
+points(min_cv,mean.cv.errors[min_cv], col="red",cex=2,pch=20)
+text(min_cv,mean.cv.errors[min_cv],labels=min_cv, cex=0.5)
+```
+
+one standard error rule
+```{r}
+se.sub = apply(cv.errors,2,sd)/sqrt(k)
+idx = min(which((mean.cv.errors[min_cv]-se.sub[min_cv]<=mean.cv.errors)&((mean.cv.errors<=mean.cv.errors[min_cv]+se.sub[min_cv]))))
+idx
+coef(regfit.full,idx)
+```
+It choose a 8-variable model.
+
+```{r}
+# cv test error
+mean.cv.errors[8]
+```
+
+## Shrinkage Methods - Ridge & Lasso
+### Ridge
+```{r}
+library(glmnet)
+x = model.matrix(count~.-weekend-season-day-lcount, d.trn)[,-1] # delete the intercept
+y = d.trn$count
+grid =10^seq(10,-2, length =100) # 1e-2 = 0.01 
+ridge.mod =glmnet(x,y,alpha=0, lambda = grid, weights=w3)
+```
+Note that by default, the glmnet() function standardizes the variables so that they are on the same scale.
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out =cv.glmnet (x, y, alpha =0, weights=w3)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+
+Refit our ridge regression model using the value of lambda chosen by cross-validation, and examine the coefficient estimates.
+```{r}
+out = glmnet(x,y,alpha = 0, weights=w3)
+predict(out, type = "coefficient", s = bestlam)[,]
+```
+
+The cv test error under best lambda
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=0, lambda = grid, weights=w3[folds!=j])
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((true-pred)^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+### Lasso
+```{r}
+lasso.mod = glmnet(x, y, alpha = 1, lambda = grid, weights=w3)
+plot(lasso.mod)
+```
+
+Use cv to choose lambda.
+```{r}
+set.seed(42)
+cv.out = cv.glmnet(x,y,alpha =1, weights=w3)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+```
+
+Refit our lasso regression model on the full data set, using the value of lambda chosen by cross-validation, and examine the coefficient estimates.     
+```{r}
+out = glmnet(x,y,alpha = 1, lambda = grid, weights=w3)
+(lasso.coef = predict(out, type = "coefficients", s = bestlam)[,])
+sum(lasso.coef[lasso.coef==0])
+```
+No coefficients shrink exactly to 0.
+
+The cv test error under lambda = 0.1852296 
+```{r}
+set.seed(42)
+k=10
+folds = sample(1:k,nrow(d.trn),replace=TRUE)
+cv.errors=c()
+for (j in 1:k){
+  ridge.mod =glmnet(x[folds!=j,],y[folds!=j], alpha=1, lambda = grid, weights=w3[folds!=j])
+  pred = predict(ridge.mod ,s=bestlam, newx=x[folds==j,])
+  true = y[folds == j]
+  cv.errors = c(cv.errors, mean((true-pred)^2))
+}
+
+(mean.cv.errors = mean(cv.errors))
+```
+
+Check the LINE assumptions again.
+```{r}
+fitted = predict(lasso.mod ,s=bestlam, newx=x)
+res = fitted-y
+plot(fitted,res, main="Residual vs Fitted Value (Lasso)")
+abline(0,0,col="red")
+
+sres = res/sd(res)
+qqnorm(sres)
+abline(0,1,col="red")
+```

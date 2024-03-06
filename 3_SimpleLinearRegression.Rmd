@@ -1,0 +1,142 @@
+---
+title: "Simple Linear Regression"
+author: "Muying Wang"
+date: "2021/12/27"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Training Model
+
+### Building multiple linear regression model
+```{r}
+d.trn = read.csv("../data/training.csv")
+lm.fit = lm(count~.-weekend-season-day, data = d.trn)
+summary(lm.fit)
+```
+
+### Interpreting the results from summary()
+- Estimated coefficients
+```{r}
+coef(lm.fit)
+```
+It seems that *hum*, *solar*, *rain*, and *holiday* have negative effects on count.
+
+It seems that *visb* has little positive effect on count. (may use Ridge or Lasso to address that problem)
+
+*Winter*, as the base variable for the other seasons, seems to have less average count than other seasons since the estimated coefficients for *spring*, *summer*, and *autumn* are all positive.
+
+*Sunday*, as the base variable for the other weekdays, seems to have less average count than other weekdays since the estimated coefficients for *monday* to *saturday* are all positive.
+
+- t-statistics
+All absolute t values are > 1.96, except for *visb*. Hence, all predictors but *visb* are statistically significant.
+
+- p-value
+All predictors but *visb* seem to be statistically significant to the regression at least on the significance level 5%.
+
+- standardization 
+```{r}
+d.std = data.frame(scale(d.trn))
+lm.fit.std = lm(count~.-weekend-season-day, data = d.std)
+summary(lm.fit.std)
+```
+The estimated coefficients are mow at similar orders of magnitudes. Note that *temp*, *hum* and *hour* have larger effects on count.
+
+The results for significance are still the same as the original fit.
+
+
+### Evaluating model (Goodness of fit)
+```{r}
+# R^2
+summary(lm.fit)$r.sq
+summary(lm.fit.std)$r.sq
+```
+
+```{r}
+# Adjusted R^2
+summary(lm.fit)$adj.r.sq
+summary(lm.fit.std)$adj.r.sq
+```
+
+
+```{r}
+# F-statistic
+summary(lm.fit)$fstatistic[1]
+summary(lm.fit.std)$fstatistic[1]
+```
+
+```{r, warning = FALSE}
+# MSE
+library(Metrics)
+(rmse(d.trn$count, lm.fit$fitted.values))^2
+(rmse(d.trn$count, lm.fit.std$fitted.values))^2
+```
+
+```{r}
+# AIC
+AIC(lm.fit)
+AIC(lm.fit.std)
+```
+
+```{r}
+# BIC
+BIC(lm.fit)
+BIC(lm.fit.std)
+```
+For both models, the $R^2$, $R_{adj}^2$, and $F\ statistic$ are the same. They also indicates a medium level of goodness of fit.
+
+```{r, warning = FALSE}
+set.seed(42)
+library(boot)
+glm.fit = glm(count~.-weekend-season-day, data = d.trn)
+cv.error = cv.glm(d.trn, glm.fit, K=10)$delta[1]
+cv.error
+```
+
+### Multicollinearity
+```{r}
+library(GGally)
+ind <- c(1:14,21,23)
+dat_corr <- d.trn[ind]
+ggcorr(dat_corr, method=c("everything","pearson"), label=T, 
+       label_size = 2, label_round = 2,
+       size = 3, low = "steelblue", mid = "snow1", high = "red3", 
+       hjust = 0.75, layout.exp = 1 )
+```
+Variables that are highly correlated: *dew*, *temp*, *summer*.
+May solve using Ridge/Lasso.
+
+
+### Checking assumptions of linear regression
+```{r}
+plot(lm.fit$fitted.values, d.trn$count)
+abline(a=0, b=1, col = "red")
+```
+
+```{r}
+plot(lm.fit)
+```
+- Assumption 1: Linear relationship between the response and predictors (violated)
+**Residuals vs Fitted** shows that there exists nonlinear relationship between the predictors and the response *count*.
+
+- Assumption 2: $\epsilon\sim Normal\ distribution$ (violated)
+**Q-Q plot** shows that it is a heavy-tailed distribution, which indicates that the residuals do not follow normal assumption.
+
+- Assumption 3: Homoscedasticity (violated)
+**Scale-Location** shows that the residuals do not have equal variance, or equivalently, this model may suffer from heteroscedasticity.
+
+- Assumption 4: No outliers 
+**Residuals vs Leverage**
+No residual seems to be outside of the Cook's distance, indicating that there is no influential point.
+
+- Assumption 5: No multi-collinearity (violated)
+```{r, warning = FALSE}
+library(car)
+lm.fit$coef[vif(lm.fit)>5]
+```
+It seems that hour, temp, visb, and spring, may suffer multicollinearity. Later, we will address this issue by Ridge/Lasso.
+
+Now that there may exist some nonlinear pattern, we do some transformations on this model.

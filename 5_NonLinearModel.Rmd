@@ -1,0 +1,158 @@
+---
+title: "KnnTreeForrest"
+author: "许金钰"
+date: "2021/12/4"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r include=FALSE}
+# read in the preprocessed data set
+training = read.csv("../data/training.csv",header=T)
+testing = read.csv("../data/test.csv",header=T)
+```
+
+```{r include=FALSE}
+library(caret)
+set.seed(42)
+# specifiy the type of resampling:
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated 3 times
+                           repeats = 3)
+```
+
+1. Regression Tree
+To fit a regression tree model, we firstly built an unpruned tree using the 
+training data set split before.
+```{r warning=FALSE, include=FALSE}
+library(tree)
+set.seed(42)
+```
+
+```{r}
+# Grow an unpruned tree
+tree.bike = tree(count~., data=training)
+```
+
+```{r include=FALSE}
+summary(tree.bike)
+```
+
+```{r}
+plot(tree.bike)
+text(tree.bike, pretty=0, cex=0.7)
+```
+From the above tree, we find: only 6 variables are used to construct the tree. 
+Among them, temperature(temp) is the dominant variable.
+When temp < 10.95℃, the demand quantity of bike is relatively smaller;
+When temp > 10.95℃, the demand quantity of bike is relatively larger.
+
+Then we use cross validation to choose the tree-complexity:
+```{r echo=FALSE}
+# use cross-validation to choose the tree-complexity
+cv.bike = cv.tree(tree.bike, K = 10)
+plot(cv.bike$size, cv.bike$dev, type="b")
+```
+The gragh above shows that the unpruned tree has the lowest deviation. 
+So we don't need to prune the tree, just use the whole tree.
+
+```{r warning=FALSE, include=FALSE}
+tree_fit <- train(count ~ ., 
+                  data = training, 
+                  method = "rpart", 
+                  trControl = fitControl)
+tree_fit
+```
+Conclusion: The estimated MSE of regression tree is: 453.1509^2 = 205345.7
+
+2.Random Forest
+First we use the cross validation to select the tunning parameter: mtry,
+which is the number of predictors considered for each split of the tree.
+We find: mtry=12 gives the smallest estimated test MSE, so we select mtry=12.
+```{r warning=FALSE, include=FALSE}
+set.seed(42)
+rf_fit <- train(count ~ ., 
+                data = training, 
+                method = "rf", 
+                trControl = trainControl(method="repeatedcv", number=10, repeats=1))
+```
+
+
+As we know, more trees in the random forest will not result in overfitting, 
+and this fact can also be verified by the graph below. so we choose a very 
+large number of tree: B = 1000 in our model.
+```{r echo=FALSE}
+library(randomForest)
+set.seed(42)
+ntree_fit<-randomForest(count ~ ., data=training, mtry=12, ntree=1000, importance=TRUE)
+plot(ntree_fit)
+```
+Then we use the varImpPlot() function to view the importance of each variable:
+```{r}
+varImpPlot(ntree_fit)
+```
+The result indicates that across all of the trees considered in the 
+random forest, hour and temp are the top 2 most important variables.
+Conclusion: The estimated MSE of random forest is: 177.9153^2 = 31653.85
+
+3.Gradient Boosting Machine
+First we use the cross validation to select the tunning parameter: n.trees(B)
+and interaction.depth(d). We find: n.trees = 150, interaction.depth = 3 give
+the smallest estimated test MSE, so we select them to build our model.
+```{r include=FALSE}
+library(gbm)
+set.seed(42)
+gbm_fit <- train(count ~ ., 
+                 data = training, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 verbose = FALSE)
+gbm_fit
+```
+
+Therefore, we set: n.trees=150, interaction.depth=3, shrinkage=0.1 and n.minobsinnode = 10,
+Where the value shrinkage and n.minobsinnode are set by default, they are already good enough.
+
+Use summary() function to see the relative importance of each variable:
+```{r include=FALSE}
+set.seed(42)
+boost.bike = gbm(count ~ .,
+                 data=training,
+                 distribution="gaussian",
+                 n.trees=150,
+                 interaction.depth=3,
+                 n.minobsinnode = 10,
+                 shrinkage = 0.1)
+summary(boost.bike)
+```
+
+
+We can see: temp and hour are the 2 most important variables. 
+Then we want to know the marginal effect of temp and hour on the response(count).
+```{r}
+par(mfrow=c(1,2))
+plot(boost.bike,i="hour")
+plot(boost.bike,i="temp")
+```
+The marginal effect plot shows: when temp is around 25℃, the demand of bike is the largest.
+Conclusion: The estimated MSE of gbm is: 228.0083^2 = 51987.78
+
+Result:
+The result true test MSE for the testing set is:
+```{r}
+library(randomForest)
+rf.bike = randomForest(count ~ .,
+                        data=testing,
+                        ntree=1000,
+                        mtry=12,
+                        importance=TRUE)
+```
+The true test MSE of rf is:
+```{r}
+yhat.rf = predict(rf.bike, newdata=testing)
+count.test = testing$count
+mean((yhat.rf-count.test)^2)
+```
