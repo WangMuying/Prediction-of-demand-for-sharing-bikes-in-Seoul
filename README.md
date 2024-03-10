@@ -1,6 +1,6 @@
 # Prediction-of-demand-for-sharing-bikes-in-Seoul
 
-This project aims at solving the problem of imbalance between the demand and supply for sharing bikes in Seoul. Our goal is to predict the hourly demand for sharing bikes in Seoul using regression methods and get inferences about the most influential factors. 
+This project uses Machine Learning methods to solve the problem of imbalance between the demand and supply for sharing bikes in Seoul. Our goal is to predict the hourly demand for sharing bikes in Seoul using regression methods and get inferences about the most influential factors. 
 
 We first tried to draw inferences by fitting linear regression models, but it turns out that the linear assumptions are violated even after some transformations on the linear model, so we turn to nonlinear methods. 
 
